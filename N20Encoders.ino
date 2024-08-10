@@ -1,6 +1,6 @@
 //This motor control functionality allows for encoders of two N20 motors to be read by executing the P command 
 // Motor Speed can also be set through the following command sets MA255 MB255 or MB-255 or MA-255 and any range between
-//
+
 
 #include "n20encoder.h"
 
@@ -11,12 +11,26 @@
 #define MOTOR_B_PWM 6    // PWM pin for Motor B (BIN2)
 #define MOTOR_ENABLE 10  // Enable pin for both motors
 
+// Global variables for PID control
+int desiredSpeedA = 0;  // Desired speed for Motor A in encoder ticks per second
+int desiredSpeedB = 0;  // Desired speed for Motor B in encoder ticks per second
+int currentSpeedA = 0;  // Current speed of Motor A in encoder ticks per second
+int currentSpeedB = 0;  // Current speed of Motor B in encoder ticks per second
+int lastEncoderCountA = 0;  // Last encoder count for Motor A
+int lastEncoderCountB = 0;  // Last encoder count for Motor B
+unsigned long lastUpdateTime = 0;  // Last time the speed was updated
+
 void setup() {
     // Initialize Serial Communication at 57600 baud for monitoring
     Serial.begin(57600);
 
     // Print a welcome message to the Serial Monitor
     Serial.println("****************************************");
+    Serial.println("*       Welcome to Motor Controller    *");
+    Serial.println("*      N20 Motor Encoder Interface     *");
+    Serial.println("*                                      *");
+    Serial.println("****************************************");
+    Serial.println("                                        ");
     Serial.println("*       Welcome to Motor Controller    *");
     Serial.println("*      N20 Motor Encoder Interface     *");
     Serial.println("*                                      *");
@@ -34,6 +48,9 @@ void setup() {
 
     // Initialize the encoders using the n20encoder library
     initEncoders();
+
+    // Initialize the last update time
+    lastUpdateTime = millis();
 }
 
 void loop() {
@@ -41,23 +58,35 @@ void loop() {
     if (Serial.available()) {
         String command = Serial.readStringUntil('\n');
         command.trim();
+        command.toUpperCase();  // Convert command to uppercase for case insensitivity
 
-        // Handle motor speed commands
-        if (command.startsWith("MA")) {
-            int speed = command.substring(2).toInt();
+        if (command.startsWith("SET SPEED A ")) {
+            int speed = command.substring(12).toInt();
             controlMotor(MOTOR_A_DIR, MOTOR_A_PWM, speed);
-            Serial.println("OK");
-        } else if (command.startsWith("MB")) {
-            int speed = command.substring(2).toInt();
+            Serial.println("Motor A speed set to " + String(speed));
+        } else if (command.startsWith("SET SPEED B ")) {
+            int speed = command.substring(12).toInt();
             controlMotor(MOTOR_B_DIR, MOTOR_B_PWM, speed);
-            Serial.println("OK");
-        } else if (command == "P") {
-            printEncoderValues();  // Print encoder counts when 'P' command is received
-            Serial.println("OK");
+            Serial.println("Motor B speed set to " + String(speed));
+        } else if (command == "READ ENCODERS") {
+            printEncoderValues();  // Print encoder counts
+        } else if (command.startsWith("SET TARGET SPEED A ")) {
+            desiredSpeedA = command.substring(18).toInt();
+            Serial.println("Target speed for Motor A set to " + String(desiredSpeedA) + " ticks/sec");
+        } else if (command.startsWith("SET TARGET SPEED B ")) {
+            desiredSpeedB = command.substring(18).toInt();
+            Serial.println("Target speed for Motor B set to " + String(desiredSpeedB) + " ticks/sec");
+        } else if (command == "HELP") {
+            printHelp();
         } else {
-            Serial.println("Invalid command");
+            Serial.println("Invalid command. Type 'HELP' for a list of available commands.");
         }
     }
+
+
+    // Update motor speeds based on encoder feedback
+    // updateMotorSpeeds();
+
 }
 
 // Function to control the motor based on speed
@@ -80,4 +109,45 @@ void printEncoderValues() {
     Serial.println(encoderCountA);  // Use the external global variable from n20encoder.cpp to get encoder A count
     Serial.print("Encoder B: ");
     Serial.println(encoderCountB);  // Use the external global variable from n20encoder.cpp to get encoder B count
+}
+
+/*/ Function to update motor speeds based on desired speed and encoder feedback
+void updateMotorSpeeds() {
+    unsigned long currentTime = millis();
+    unsigned long deltaTime = currentTime - lastUpdateTime;
+
+    if (deltaTime >= 100) {  // Update every 100ms (10Hz)
+        // Calculate current speeds in ticks per second
+        currentSpeedA = (encoderCountA - lastEncoderCountA) * (1000 / deltaTime);
+        currentSpeedB = (encoderCountB - lastEncoderCountB) * (1000 / deltaTime);
+
+        // Calculate the speed errors
+        int errorA = desiredSpeedA - currentSpeedA;
+        int errorB = desiredSpeedB - currentSpeedB;
+
+        // Adjust motor PWM based on error (simple P control for demonstration)
+        int motorSpeedA = constrain(errorA * 1, -255, 255);  // Adjust the multiplier for tuning
+        int motorSpeedB = constrain(errorB * 1, -255, 255);  // Adjust the multiplier for tuning
+
+        // Apply the new speeds to the motors
+        controlMotor(MOTOR_A_DIR, MOTOR_A_PWM, motorSpeedA);
+        controlMotor(MOTOR_B_DIR, MOTOR_B_PWM, motorSpeedB);
+
+        // Update last encoder counts and time
+        lastEncoderCountA = encoderCountA;
+        lastEncoderCountB = encoderCountB;
+        lastUpdateTime = currentTime;
+    }
+}
+*/
+
+// Function to print a list of available commands
+void printHelp() {
+    Serial.println("Available Commands:");
+    Serial.println("SET SPEED A <value>      - Set speed for Motor A (value between -255 to 255)");
+    Serial.println("SET SPEED B <value>      - Set speed for Motor B (value between -255 to 255)");
+    Serial.println("SET TARGET SPEED A <ticks/sec>  - Set target speed for Motor A in encoder ticks per second");
+    Serial.println("SET TARGET SPEED B <ticks/sec>  - Set target speed for Motor B in encoder ticks per second");
+    Serial.println("READ ENCODERS            - Read and display the encoder values for both motors");
+    Serial.println("HELP                     - Display this help message");
 }
