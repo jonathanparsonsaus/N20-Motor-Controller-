@@ -22,14 +22,15 @@ unsigned long lastUpdateTime = 0;  // Last time the speed was updated
 
 // PID control variables
 float kp = 0.05;  // Proportional gain
-float ki = 0.005;  // Integral gain
+float ki = 0.001;  // Integral gain
 float kd = 0.00001; // Derivative gain
 
 int integralA = 0;  // Integral term for Motor A
 int integralB = 0;  // Integral term for Motor B
 int lastErrorA = 0;  // Last error for Motor A
 int lastErrorB = 0;  // Last error for Motor B
-
+int motorSpeedA = 0; // Motor speed control signal A
+int motorSpeedB = 0; // Motor speed control signal B
 void setup() {
     // Initialize Serial Communication at 57600 baud for monitoring
     Serial.begin(57600);
@@ -147,15 +148,41 @@ void updateMotorSpeeds() {
         int derivativeA = (errorA - lastErrorA) / deltaTime;
         int derivativeB = (errorB - lastErrorB) / deltaTime;
 
-        // PID control output
-        int motorSpeedA = constrain((kp * desiredSpeedA) + (0 * integralA) + (0 * derivativeA), -255, 255);
-        int motorSpeedB = constrain((kp * desiredSpeedB) + (0 * integralB) + (0 * derivativeB), -255, 255);
+        
+        // Implement Gap Control
+        if (errorA > 0 && errorA < 50) {
+        motorSpeedA++;  
+        } else if (errorA < 0 && errorA > -50){
+          motorSpeedA--;
+        }
 
-        // Apply the new PWM values to the motors
+        if ( errorA > 50) {
+        motorSpeedA++;  
+        } else if (errorA < -50){
+          motorSpeedA = motorSpeedA -50;
+        }
+
+        if (errorB > 0 && errorB < 50) {
+        motorSpeedB++;  
+        } else if (errorB < 0 && errorB > -50){
+          motorSpeedB--;
+        }
+
+        if ( errorB > 50) {
+        motorSpeedB = motorSpeedB + 50;  
+        } else if (errorB < -50){
+          motorSpeedB = motorSpeedB -50;
+        }
+
+        //Keep Motor Control Signal within PWM ranges
+        motorSpeedA = constrain(motorSpeedA, -255, 255);
+        motorSpeedB = constrain(motorSpeedB, -255, 255);
+
+         // Apply the new PWM values to the motors
         controlMotor(MOTOR_A_DIR, MOTOR_A_PWM, motorSpeedA);
         controlMotor(MOTOR_B_DIR, MOTOR_B_PWM, motorSpeedB);
 
-        //Print Motor speeds as current
+        //Print Motor speeds as current`
         Serial.println("Motor A speed is " + String(currentSpeedA) + " Motor B speed is " + String(currentSpeedB) + " Motor Control Signal A is" + String(motorSpeedA) + " Motor Control Signal B is" + String(motorSpeedB));
       
 
