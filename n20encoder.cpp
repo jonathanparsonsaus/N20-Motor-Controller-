@@ -70,9 +70,9 @@ void encoderBISR() {
 
     // Determine direction based on the relative states of Channel A and Channel B
     if (lastStateB0 == currentStateB1) {
-        encoderCountB++; // Moving forward
+        encoderCountB--; // Moving forward
     } else {
-        encoderCountB--; // Moving backward
+        encoderCountB++; // Moving backward
     }
 
     // Update the last known states for Encoder B

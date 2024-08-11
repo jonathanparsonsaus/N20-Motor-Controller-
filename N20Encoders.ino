@@ -20,21 +20,32 @@ int lastEncoderCountA = 0;  // Last encoder count for Motor A
 int lastEncoderCountB = 0;  // Last encoder count for Motor B
 unsigned long lastUpdateTime = 0;  // Last time the speed was updated
 
+// PID control variables
+float kp = 0.05;  // Proportional gain
+float ki = 0.005;  // Integral gain
+float kd = 0.00001; // Derivative gain
+
+int integralA = 0;  // Integral term for Motor A
+int integralB = 0;  // Integral term for Motor B
+int lastErrorA = 0;  // Last error for Motor A
+int lastErrorB = 0;  // Last error for Motor B
+
 void setup() {
     // Initialize Serial Communication at 57600 baud for monitoring
     Serial.begin(57600);
 
     // Print a welcome message to the Serial Monitor
-    Serial.println("****************************************");
-    Serial.println("*       Welcome to Motor Controller    *");
-    Serial.println("*      N20 Motor Encoder Interface     *");
-    Serial.println("*                                      *");
-    Serial.println("****************************************");
-    Serial.println("                                        ");
-    Serial.println("*       Welcome to Motor Controller    *");
-    Serial.println("*      N20 Motor Encoder Interface     *");
-    Serial.println("*                                      *");
-    Serial.println("****************************************");
+    Serial.println("*************************************************");
+    Serial.println("*       Welcome to Motor Controller             *");
+    Serial.println("*      N20 Motor Encoder Interface              *");
+    Serial.println("*                                               *");
+    Serial.println("*************************************************");
+    Serial.println("This rogram allows you to:                      *");
+    Serial.println("*1. Set open loop motor speed                   *");
+    Serial.println("*2. Set the closed loop motor speed (ticks/s)   *");
+    Serial.println("*3. Set the desired position in ticks           *");
+    Serial.println("*3. Set the desired position in ticks           *");
+    Serial.println("*************************************************");
 
     // Initialize motor control pins as outputs
     pinMode(MOTOR_A_DIR, OUTPUT);
@@ -85,18 +96,19 @@ void loop() {
 
 
     // Update motor speeds based on encoder feedback
-    // updateMotorSpeeds();
+    updateMotorSpeeds();
+
 
 }
 
 // Function to control the motor based on speed
 void controlMotor(int dirPin, int pwmPin, int speed) {
     if (speed > 0) {
-        digitalWrite(dirPin, HIGH);   // Set motor direction forward
+        digitalWrite(dirPin, LOW);   // Set motor direction forward
         analogWrite(pwmPin, speed);   // Set motor speed (0-255)
     } else if (speed < 0) {
-        digitalWrite(dirPin, LOW);    // Set motor direction backward
-        analogWrite(pwmPin, -speed);  // Set motor speed (-speed to invert PWM)
+        digitalWrite(dirPin, HIGH);    // Set motor direction backward
+        analogWrite(pwmPin,255+speed);  // Set motor speed (-speed to invert PWM)
     } else {
         analogWrite(pwmPin, 0);       // Stop the motor if speed is 0
     }
@@ -111,35 +123,51 @@ void printEncoderValues() {
     Serial.println(encoderCountB);  // Use the external global variable from n20encoder.cpp to get encoder B count
 }
 
-/*/ Function to update motor speeds based on desired speed and encoder feedback
+// Function to update motor speeds based on desired speed and encoder feedback
+
+
 void updateMotorSpeeds() {
     unsigned long currentTime = millis();
     unsigned long deltaTime = currentTime - lastUpdateTime;
 
-    if (deltaTime >= 100) {  // Update every 100ms (10Hz)
+    if (deltaTime >= 50) {  // Update every 10ms (10Hz)
         // Calculate current speeds in ticks per second
-        currentSpeedA = (encoderCountA - lastEncoderCountA) * (1000 / deltaTime);
-        currentSpeedB = (encoderCountB - lastEncoderCountB) * (1000 / deltaTime);
+        currentSpeedA = (encoderCountA - lastEncoderCountA) * (1000.0 / deltaTime);
+        currentSpeedB = (encoderCountB - lastEncoderCountB) * (1000.0 / deltaTime);
 
         // Calculate the speed errors
         int errorA = desiredSpeedA - currentSpeedA;
         int errorB = desiredSpeedB - currentSpeedB;
 
-        // Adjust motor PWM based on error (simple P control for demonstration)
-        int motorSpeedA = constrain(errorA * 1, -255, 255);  // Adjust the multiplier for tuning
-        int motorSpeedB = constrain(errorB * 1, -255, 255);  // Adjust the multiplier for tuning
+        // Update integral term
+        integralA += errorA * deltaTime;
+        integralB += errorB * deltaTime;
 
-        // Apply the new speeds to the motors
+        // Calculate derivative term
+        int derivativeA = (errorA - lastErrorA) / deltaTime;
+        int derivativeB = (errorB - lastErrorB) / deltaTime;
+
+        // PID control output
+        int motorSpeedA = constrain((kp * desiredSpeedA) + (0 * integralA) + (0 * derivativeA), -255, 255);
+        int motorSpeedB = constrain((kp * desiredSpeedB) + (0 * integralB) + (0 * derivativeB), -255, 255);
+
+        // Apply the new PWM values to the motors
         controlMotor(MOTOR_A_DIR, MOTOR_A_PWM, motorSpeedA);
         controlMotor(MOTOR_B_DIR, MOTOR_B_PWM, motorSpeedB);
 
-        // Update last encoder counts and time
+        //Print Motor speeds as current
+        Serial.println("Motor A speed is " + String(currentSpeedA) + " Motor B speed is " + String(currentSpeedB) + " Motor Control Signal A is" + String(motorSpeedA) + " Motor Control Signal B is" + String(motorSpeedB));
+      
+
+        // Update last error and last encoder counts
+        lastErrorA = errorA;
+        lastErrorB = errorB;
         lastEncoderCountA = encoderCountA;
         lastEncoderCountB = encoderCountB;
         lastUpdateTime = currentTime;
     }
 }
-*/
+
 
 // Function to print a list of available commands
 void printHelp() {
