@@ -20,17 +20,11 @@ int lastEncoderCountA = 0;  // Last encoder count for Motor A
 int lastEncoderCountB = 0;  // Last encoder count for Motor B
 unsigned long lastUpdateTime = 0;  // Last time the speed was updated
 
-// PID control variables
-float kp = 0.05;  // Proportional gain
-float ki = 0.001;  // Integral gain
-float kd = 0.00001; // Derivative gain
 
-int integralA = 0;  // Integral term for Motor A
-int integralB = 0;  // Integral term for Motor B
-int lastErrorA = 0;  // Last error for Motor A
-int lastErrorB = 0;  // Last error for Motor B
+//Motor signal control speeds
 int motorSpeedA = 0; // Motor speed control signal A
 int motorSpeedB = 0; // Motor speed control signal B
+
 void setup() {
     // Initialize Serial Communication at 57600 baud for monitoring
     Serial.begin(57600);
@@ -131,7 +125,7 @@ void updateMotorSpeeds() {
     unsigned long currentTime = millis();
     unsigned long deltaTime = currentTime - lastUpdateTime;
 
-    if (deltaTime >= 50) {  // Update every 10ms (10Hz)
+    if (deltaTime >= 25) {  // Update every 10ms (10Hz)
         // Calculate current speeds in ticks per second
         currentSpeedA = (encoderCountA - lastEncoderCountA) * (1000.0 / deltaTime);
         currentSpeedB = (encoderCountB - lastEncoderCountB) * (1000.0 / deltaTime);
@@ -139,39 +133,30 @@ void updateMotorSpeeds() {
         // Calculate the speed errors
         int errorA = desiredSpeedA - currentSpeedA;
         int errorB = desiredSpeedB - currentSpeedB;
-
-        // Update integral term
-        integralA += errorA * deltaTime;
-        integralB += errorB * deltaTime;
-
-        // Calculate derivative term
-        int derivativeA = (errorA - lastErrorA) / deltaTime;
-        int derivativeB = (errorB - lastErrorB) / deltaTime;
-
         
         // Implement Gap Control
-        if (errorA > 0 && errorA < 50) {
+        if (errorA > 0 && errorA < 30) {
         motorSpeedA++;  
-        } else if (errorA < 0 && errorA > -50){
+        } else if (errorA < 0 && errorA > -30){
           motorSpeedA--;
         }
 
-        if ( errorA > 50) {
-        motorSpeedA++;  
-        } else if (errorA < -50){
-          motorSpeedA = motorSpeedA -50;
+        if ( errorA >= 30) {
+        motorSpeedA = motorSpeedA + 2;  
+        } else if (errorA <= -30){
+          motorSpeedA = motorSpeedA -2;
         }
 
-        if (errorB > 0 && errorB < 50) {
+        if (errorB > 0 && errorB < 30) {
         motorSpeedB++;  
-        } else if (errorB < 0 && errorB > -50){
+        } else if (errorB < 0 && errorB > -30){
           motorSpeedB--;
         }
 
-        if ( errorB > 50) {
-        motorSpeedB = motorSpeedB + 50;  
-        } else if (errorB < -50){
-          motorSpeedB = motorSpeedB -50;
+        if ( errorB >= 30) {
+        motorSpeedB = motorSpeedB + 2;  
+        } else if (errorB <= -30){
+          motorSpeedB = motorSpeedB -2;
         }
 
         //Keep Motor Control Signal within PWM ranges
@@ -186,9 +171,7 @@ void updateMotorSpeeds() {
         Serial.println("Motor A speed is " + String(currentSpeedA) + " Motor B speed is " + String(currentSpeedB) + " Motor Control Signal A is" + String(motorSpeedA) + " Motor Control Signal B is" + String(motorSpeedB));
       
 
-        // Update last error and last encoder counts
-        lastErrorA = errorA;
-        lastErrorB = errorB;
+        // Update  last encoder counts
         lastEncoderCountA = encoderCountA;
         lastEncoderCountB = encoderCountB;
         lastUpdateTime = currentTime;
