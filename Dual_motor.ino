@@ -1,16 +1,14 @@
-
 #include <Arduino.h>
-#include <math.h>
 
 // === Pins ===
-const uint8_t MOTOR1_PIN_A = 9;
-const uint8_t MOTOR1_PIN_B = 10;
-const uint8_t ENC1_A = 2;
+const uint8_t MOTOR1_PIN_A = 9;  // PWM (Timer1)
+const uint8_t MOTOR1_PIN_B = 10; // PWM (Timer1)
+const uint8_t ENC1_A = 2;        // Interrupt pin
 const uint8_t ENC1_B = 6;
 
-const uint8_t MOTOR2_PIN_A = 8;
-const uint8_t MOTOR2_PIN_B = 11;
-const uint8_t ENC2_A = 3;
+const uint8_t MOTOR2_PIN_A = 8;  // Non-PWM pin (switched to 5 for PWM)
+const uint8_t MOTOR2_PIN_B = 11; // PWM (Timer2)
+const uint8_t ENC2_A = 3;        // Interrupt pin
 const uint8_t ENC2_B = 7;
 
 const uint8_t BTN_M1 = 12;
@@ -32,11 +30,22 @@ bool m2AtHigh = false;
 bool lastBtnM1State = HIGH;
 bool lastBtnM2State = HIGH;
 
-// === Control Settings ===
-const int MAX_SPEED = 200;
-const int MIN_SPEED = 80;
-const int DEAD_ZONE = 10;
-const int RAMP_RANGE = 1500;
+// === PID Parameters ===
+struct PID {
+  float Kp = 2.0;    // Proportional gain
+  float Ki = 0.05;   // Integral gain
+  float Kd = 0.1;    // Derivative gain
+  long lastError = 0;
+  float integral = 0;
+  unsigned long lastTime = 0;
+};
+
+PID pid1, pid2;
+
+const int MAX_PWM = 255;    // 8-bit PWM limit
+const int DEAD_ZONE = 10;   // Error dead zone (encoder counts)
+const float MAX_INTEGRAL = 1000.0; // Anti-windup limit
+const unsigned long PID_INTERVAL = 10; // PID update interval (ms)
 
 // === Serial Input ===
 char inputBuffer[32];
@@ -44,8 +53,9 @@ uint8_t inputIndex = 0;
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("=== Motor Toggle + Adjustable High Targets via Serial ===");
+  Serial.println("=== PID Motor Control with Adjustable Targets ===");
 
+  // Configure pins
   pinMode(MOTOR1_PIN_A, OUTPUT);
   pinMode(MOTOR1_PIN_B, OUTPUT);
   pinMode(MOTOR2_PIN_A, OUTPUT);
@@ -58,13 +68,23 @@ void setup() {
   pinMode(BTN_M1, INPUT_PULLUP);
   pinMode(BTN_M2, INPUT_PULLUP);
 
+  // Attach interrupts for encoders
   attachInterrupt(digitalPinToInterrupt(ENC1_A), isrEnc1, CHANGE);
   attachInterrupt(digitalPinToInterrupt(ENC2_A), isrEnc2, CHANGE);
+
+  // Initialize PWM to 0
+  analogWrite(MOTOR1_PIN_A, 0);
+  analogWrite(MOTOR1_PIN_B, 0);
+  analogWrite(MOTOR2_PIN_A, 0);
+  analogWrite(MOTOR2_PIN_B, 0);
 }
 
 void loop() {
   static unsigned long lastPrint = 0;
-  if (millis() - lastPrint > 500) {
+  static unsigned long lastPidUpdate = 0;
+
+  // Periodic status print
+  if (millis() - lastPrint >= 500) {
     lastPrint = millis();
     Serial.print("Enc1: "); Serial.print(encoderCount1);
     Serial.print(" | Tgt1: "); Serial.print(target1);
@@ -74,11 +94,12 @@ void loop() {
     Serial.print(" | BTN2: "); Serial.println(digitalRead(BTN_M2) == LOW ? "PRESSED" : "released");
   }
 
-  // === Button Toggles ===
+  // Button toggles
   bool btn1 = digitalRead(BTN_M1);
   if (btn1 == LOW && lastBtnM1State == HIGH) {
     m1AtHigh = !m1AtHigh;
     target1 = m1AtHigh ? highTarget1 : 0;
+    pid1.integral = 0; // Reset integral on target change
     Serial.print("Motor 1 toggled to: "); Serial.println(target1);
   }
   lastBtnM1State = btn1;
@@ -87,11 +108,12 @@ void loop() {
   if (btn2 == LOW && lastBtnM2State == HIGH) {
     m2AtHigh = !m2AtHigh;
     target2 = m2AtHigh ? highTarget2 : 0;
+    pid2.integral = 0; // Reset integral on target change
     Serial.print("Motor 2 toggled to: "); Serial.println(target2);
   }
   lastBtnM2State = btn2;
 
-  // === Serial Command Parser ===
+  // Serial command parser
   while (Serial.available()) {
     char c = Serial.read();
     if (c == '\n' || c == '\r') {
@@ -103,38 +125,67 @@ void loop() {
     }
   }
 
-  // === Motor 1 Control ===
-  long error1 = target1 - encoderCount1;
-  float ramp1 = constrain(abs(error1) / (float)RAMP_RANGE, 0.0, 1.0);
-  int speed1 = MIN_SPEED + (MAX_SPEED - MIN_SPEED) * pow(ramp1, 0.7);
-  speed1 = constrain(speed1, MIN_SPEED, MAX_SPEED);
+  // PID control update
+  if (millis() - lastPidUpdate >= PID_INTERVAL) {
+    lastPidUpdate = millis();
 
-  if (abs(error1) < DEAD_ZONE) {
-    analogWrite(MOTOR1_PIN_A, 0);
-    analogWrite(MOTOR1_PIN_B, 0);
-  } else if (error1 > 0) {
-    analogWrite(MOTOR1_PIN_A, speed1);
-    analogWrite(MOTOR1_PIN_B, 0);
-  } else {
-    analogWrite(MOTOR1_PIN_A, 0);
-    analogWrite(MOTOR1_PIN_B, speed1);
-  }
+    // Motor 1 PID
+    long error1 = target1 - encoderCount1;
+    if (abs(error1) < DEAD_ZONE) {
+      analogWrite(MOTOR1_PIN_A, 0);
+      analogWrite(MOTOR1_PIN_B, 0);
+      pid1.integral = 0; // Reset integral in dead zone
+    } else {
+      unsigned long now = millis();
+      float dt = (now - pid1.lastTime) / 1000.0; // Time delta in seconds
+      if (dt > 0) { // Avoid division by zero
+        float derivative = (error1 - pid1.lastError) / dt;
+        pid1.integral += error1 * dt;
+        pid1.integral = constrain(pid1.integral, -MAX_INTEGRAL, MAX_INTEGRAL); // Anti-windup
 
-  // === Motor 2 Control ===
-  long error2 = target2 - encoderCount2;
-  float ramp2 = constrain(abs(error2) / (float)RAMP_RANGE, 0.0, 1.0);
-  int speed2 = MIN_SPEED + (MAX_SPEED - MIN_SPEED) * pow(ramp2, 0.7);
-  speed2 = constrain(speed2, MIN_SPEED, MAX_SPEED);
+        float output = pid1.Kp * error1 + pid1.Ki * pid1.integral + pid1.Kd * derivative;
+        int pwm = constrain(abs(output), 0, MAX_PWM);
 
-  if (abs(error2) < DEAD_ZONE) {
-    analogWrite(MOTOR2_PIN_A, 0);
-    analogWrite(MOTOR2_PIN_B, 0);
-  } else if (error2 > 0) {
-    analogWrite(MOTOR2_PIN_A, speed2);
-    analogWrite(MOTOR2_PIN_B, 0);
-  } else {
-    analogWrite(MOTOR2_PIN_A, 0);
-    analogWrite(MOTOR2_PIN_B, speed2);
+        if (output > 0) {
+          analogWrite(MOTOR1_PIN_A, pwm);
+          analogWrite(MOTOR1_PIN_B, 0);
+        } else {
+          analogWrite(MOTOR1_PIN_A, 0);
+          analogWrite(MOTOR1_PIN_B, pwm);
+        }
+      }
+      pid1.lastError = error1;
+      pid1.lastTime = now;
+    }
+
+    // Motor 2 PID
+    long error2 = target2 - encoderCount2;
+    if (abs(error2) < DEAD_ZONE) {
+      analogWrite(MOTOR2_PIN_A, 0);
+      analogWrite(MOTOR2_PIN_B, 0);
+      pid2.integral = 0; // Reset integral in dead zone
+    } else {
+      unsigned long now = millis();
+      float dt = (now - pid2.lastTime) / 1000.0; // Time delta in seconds
+      if (dt > 0) { // Avoid division by zero
+        float derivative = (error2 - pid2.lastError) / dt;
+        pid2.integral += error2 * dt;
+        pid2.integral = constrain(pid2.integral, -MAX_INTEGRAL, MAX_INTEGRAL); // Anti-windup
+
+        float output = pid2.Kp * error2 + pid2.Ki * pid2.integral + pid2.Kd * derivative;
+        int pwm = constrain(abs(output), 0, MAX_PWM);
+
+        if (output > 0) {
+          analogWrite(MOTOR2_PIN_A, pwm);
+          analogWrite(MOTOR2_PIN_B, 0);
+        } else {
+          analogWrite(MOTOR2_PIN_A, 0);
+          analogWrite(MOTOR2_PIN_B, pwm);
+        }
+      }
+      pid2.lastError = error2;
+      pid2.lastTime = now;
+    }
   }
 }
 
@@ -153,18 +204,23 @@ void isrEnc2() {
 
 // === Parse Serial Command ===
 void parseSerialCommand(const char* cmd) {
-  if (cmd[0] == '\0') return; // ignore blank lines
+  if (cmd[0] == '\0') return; // Ignore blank lines
 
   if (strncmp(cmd, "SET M1:", 7) == 0) {
     highTarget1 = atol(cmd + 7);
     Serial.print("High Target 1 updated to: "); Serial.println(highTarget1);
-    if (m1AtHigh) target1 = highTarget1;
+    if (m1AtHigh) {
+      target1 = highTarget1;
+      pid1.integral = 0; // Reset integral
+    }
   } else if (strncmp(cmd, "SET M2:", 7) == 0) {
     highTarget2 = atol(cmd + 7);
     Serial.print("High Target 2 updated to: "); Serial.println(highTarget2);
-    if (m2AtHigh) target2 = highTarget2;
+    if (m2AtHigh) {
+      target2 = highTarget2;
+      pid2.integral = 0; // Reset integral
+    }
   } else {
     Serial.print("Unrecognised command: "); Serial.println(cmd);
   }
 }
-
