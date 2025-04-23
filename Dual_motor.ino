@@ -73,9 +73,9 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(ENC2_A), isrEnc2, CHANGE);
 
   // Initialize PWM to 0
-  analogWrite(MOTOR1_PIN_A, 0);
+  digitalWrite(MOTOR1_PIN_A, 0);
   analogWrite(MOTOR1_PIN_B, 0);
-  analogWrite(MOTOR2_PIN_A, 0);
+  digitalWrite(MOTOR2_PIN_A, 0);
   analogWrite(MOTOR2_PIN_B, 0);
 }
 
