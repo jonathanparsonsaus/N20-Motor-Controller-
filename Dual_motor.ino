@@ -1,12 +1,12 @@
 #include <Arduino.h>
 
 // === Pins ===
-const uint8_t MOTOR1_PIN_A = 9;  // PWM (Timer1)
+const uint8_t MOTOR1_PIN_A = 9;  // Digital Pin
 const uint8_t MOTOR1_PIN_B = 10; // PWM (Timer1)
 const uint8_t ENC1_A = 2;        // Interrupt pin
 const uint8_t ENC1_B = 6;
 
-const uint8_t MOTOR2_PIN_A = 8;  // Non-PWM pin (switched to 5 for PWM)
+const uint8_t MOTOR2_PIN_A = 8;  // Digital Pin 
 const uint8_t MOTOR2_PIN_B = 11; // PWM (Timer2)
 const uint8_t ENC2_A = 3;        // Interrupt pin
 const uint8_t ENC2_B = 7;
@@ -147,10 +147,10 @@ void loop() {
         int pwm = constrain(abs(output), 0, MAX_PWM);
 
         if (output > 0) {
-          analogWrite(MOTOR1_PIN_A, pwm);
-          analogWrite(MOTOR1_PIN_B, 0);
+          digitalWrite(MOTOR1_PIN_A, 1);
+          analogWrite(MOTOR1_PIN_B, 255 - pwm);
         } else {
-          analogWrite(MOTOR1_PIN_A, 0);
+          digitalWrite(MOTOR1_PIN_A, 0);
           analogWrite(MOTOR1_PIN_B, pwm);
         }
       }
@@ -176,10 +176,10 @@ void loop() {
         int pwm = constrain(abs(output), 0, MAX_PWM);
 
         if (output > 0) {
-          analogWrite(MOTOR2_PIN_A, pwm);
-          analogWrite(MOTOR2_PIN_B, 0);
+          digitalWrite(MOTOR2_PIN_A, 1);
+          analogWrite(MOTOR2_PIN_B, 255 - pwm);
         } else {
-          analogWrite(MOTOR2_PIN_A, 0);
+          digitalWrite(MOTOR2_PIN_A, 0);
           analogWrite(MOTOR2_PIN_B, pwm);
         }
       }
